@@ -57,12 +57,9 @@ This system:
 
 ## 🧱 System Architecture
 
+<img width="2816" height="1536" alt="Gemini_Generated_Image_54tjdc54tjdc54tj" src="https://github.com/user-attachments/assets/fa2c101b-9dff-472e-b403-515a071b1eb2" />
+
 ```
-
-
-<img width="2816" height="1536" alt="Gemini_Generated_Image_54tjdc54tjdc54tj" src="https://github.com/user-attachments/assets/b999cefb-a3a4-44d3-a6e9-a5cc462503b8" />
-
-
 Prometheus → Monitor → Diagnose (LLM) → Decision Engine
 ↓
 Memory (ChromaDB + Redis) ← Execute ← Policy (OPA)
