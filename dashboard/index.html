@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Autonomous SRE — Control Plane</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d0f12;--surface:#13161b;--surface2:#191d24;--surface3:#1f242d;
+  --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.12);
+  --text:#e2e8f0;--muted:#64748b;--faint:#334155;
+  --primary:#00d4aa;--primary-dim:#00d4aa22;--primary-hover:#00b894;
+  --danger:#ff4757;--danger-dim:#ff475722;
+  --warning:#ffa502;--warning-dim:#ffa50222;
+  --success:#2ed573;--success-dim:#2ed57322;
+  --blue:#4fc3f7;--blue-dim:#4fc3f722;
+  --purple:#a78bfa;--purple-dim:#a78bfa22;
+  --font-body:'Inter',sans-serif;
+  --font-mono:'JetBrains Mono',monospace;
+  --r:8px;--r-lg:12px;--r-xl:16px;
+  --shadow:0 4px 24px rgba(0,0,0,0.4);
+}
+html{-webkit-font-smoothing:antialiased;scroll-behavior:smooth}
+body{min-height:100dvh;font-family:var(--font-body);font-size:14px;color:var(--text);background:var(--bg);display:flex;flex-direction:column}
+button{cursor:pointer;border:none;background:none;font:inherit;color:inherit}
+a{color:inherit;text-decoration:none}
+input{font:inherit;color:inherit}
+
+/* ── Layout ─── */
+.app{display:flex;flex:1;min-height:100dvh}
+.sidebar{width:220px;min-width:220px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:0;position:sticky;top:0;height:100dvh;overflow-y:auto}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.topbar{height:56px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 24px;gap:16px;position:sticky;top:0;z-index:10}
+.content{flex:1;padding:24px;overflow-y:auto;display:flex;flex-direction:column;gap:20px}
+
+/* ── Sidebar ─── */
+.logo{padding:20px 18px 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border)}
+.logo-icon{width:32px;height:32px;flex-shrink:0}
+.logo-text{font-size:13px;font-weight:700;letter-spacing:.02em;line-height:1.3}
+.logo-sub{font-size:10px;color:var(--muted);font-weight:400;letter-spacing:.04em;text-transform:uppercase}
+.nav{padding:12px 0;flex:1}
+.nav-section{padding:6px 18px 4px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin-top:8px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 18px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;border-radius:0;transition:all .15s;border-left:2px solid transparent;margin:1px 0}
+.nav-item:hover{color:var(--text);background:var(--surface2)}
+.nav-item.active{color:var(--primary);background:var(--primary-dim);border-left-color:var(--primary)}
+.nav-item svg{width:16px;height:16px;flex-shrink:0;opacity:.8}
+.sidebar-bottom{padding:14px 18px;border-top:1px solid var(--border)}
+.status-dot{width:7px;height:7px;border-radius:50%;background:var(--success);box-shadow:0 0 6px var(--success);flex-shrink:0}
+.status-dot.red{background:var(--danger);box-shadow:0 0 6px var(--danger)}
+.status-dot.yellow{background:var(--warning);box-shadow:0 0 6px var(--warning)}
+
+/* ── Topbar ─── */
+.topbar-title{font-size:15px;font-weight:600;flex:1}
+.topbar-badge{font-size:11px;padding:3px 8px;border-radius:999px;font-weight:600;font-family:var(--font-mono)}
+.badge-danger{background:var(--danger-dim);color:var(--danger)}
+.badge-success{background:var(--success-dim);color:var(--success)}
+.badge-warning{background:var(--warning-dim);color:var(--warning)}
+.badge-info{background:var(--blue-dim);color:var(--blue)}
+.badge-muted{background:var(--surface3);color:var(--muted)}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:var(--r);font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;border:1px solid transparent}
+.btn-primary{background:var(--primary);color:#000;border-color:var(--primary)}
+.btn-primary:hover{background:var(--primary-hover);border-color:var(--primary-hover)}
+.btn-ghost{background:transparent;color:var(--muted);border-color:var(--border2)}
+.btn-ghost:hover{color:var(--text);background:var(--surface2)}
+.btn-danger{background:var(--danger-dim);color:var(--danger);border-color:transparent}
+.btn-danger:hover{background:var(--danger);color:#fff}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn svg{width:14px;height:14px}
+
+/* ── Cards ─── */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:20px}
+.card-sm{padding:14px 16px}
+.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.card-title{font-size:13px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:8px}
+.card-title svg{width:15px;height:15px;color:var(--primary)}
+
+/* ── KPI Grid ─── */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:16px 18px}
+.kpi-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+.kpi-value{font-size:28px;font-weight:700;font-family:var(--font-mono);line-height:1;color:var(--text)}
+.kpi-value.danger{color:var(--danger)}
+.kpi-value.success{color:var(--success)}
+.kpi-value.warning{color:var(--warning)}
+.kpi-value.info{color:var(--blue)}
+.kpi-sub{font-size:11px;color:var(--muted);margin-top:6px}
+
+/* ── Table ─── */
+.table-wrap{overflow-x:auto;border-radius:var(--r-lg)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead tr{border-bottom:1px solid var(--border2)}
+th{text-align:left;padding:10px 14px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
+td{padding:11px 14px;border-bottom:1px solid var(--border);white-space:nowrap}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--surface2)}
+.mono{font-family:var(--font-mono);font-size:12px}
+
+/* ── Anomaly card ─── */
+.anomaly-list{display:flex;flex-direction:column;gap:10px}
+.anomaly-item{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;display:flex;align-items:flex-start;gap:14px;position:relative;overflow:hidden}
+.anomaly-item::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px}
+.anomaly-item.critical::before{background:var(--danger)}
+.anomaly-item.high::before{background:var(--warning)}
+.anomaly-item.medium::before{background:var(--blue)}
+.anomaly-item.low::before{background:var(--success)}
+.anomaly-body{flex:1;min-width:0}
+.anomaly-title{font-weight:600;font-size:13px;margin-bottom:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.anomaly-meta{font-size:12px;color:var(--muted);font-family:var(--font-mono)}
+
+/* ── Incident list ─── */
+.incident-row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)}
+.incident-row:last-child{border-bottom:none}
+.incident-icon{width:32px;height:32px;border-radius:var(--r);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.incident-icon.resolved{background:var(--success-dim)}
+.incident-icon.escalated{background:var(--warning-dim)}
+.incident-icon.dry_run{background:var(--blue-dim)}
+.incident-body{flex:1;min-width:0}
+.incident-title{font-size:13px;font-weight:500;margin-bottom:2px}
+.incident-meta{font-size:11px;color:var(--muted);font-family:var(--font-mono)}
+
+/* ── Pipeline ─── */
+.pipeline-stages{display:flex;align-items:center;gap:0;flex-wrap:wrap}
+.stage{display:flex;align-items:center;gap:0}
+.stage-node{padding:6px 14px;border-radius:999px;font-size:12px;font-weight:600;background:var(--surface3);color:var(--muted);border:1px solid var(--border);white-space:nowrap}
+.stage-node.active{background:var(--primary-dim);color:var(--primary);border-color:var(--primary);box-shadow:0 0 12px var(--primary-dim)}
+.stage-node.done{background:var(--success-dim);color:var(--success);border-color:var(--success)}
+.stage-node.failed{background:var(--danger-dim);color:var(--danger);border-color:var(--danger)}
+.stage-arrow{width:24px;text-align:center;color:var(--faint);font-size:14px}
+
+/* ── Cluster pods ─── */
+.pod-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+.pod-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:12px 14px}
+.pod-name{font-family:var(--font-mono);font-size:12px;font-weight:600;margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pod-row{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:3px}
+.pod-row span:last-child{color:var(--text);font-family:var(--font-mono)}
+
+/* ── Log stream ─── */
+.log-box{background:#0a0c0f;border:1px solid var(--border);border-radius:var(--r);padding:14px;font-family:var(--font-mono);font-size:12px;line-height:1.7;max-height:300px;overflow-y:auto;color:#94a3b8}
+.log-line.ok{color:var(--success)}
+.log-line.err{color:var(--danger)}
+.log-line.warn{color:var(--warning)}
+.log-line.info{color:var(--blue)}
+.log-line.dim{color:var(--faint)}
+
+/* ── Policy ─── */
+.policy-item{display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)}
+.policy-item:last-child{border-bottom:none}
+.policy-verdict{padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;flex-shrink:0;margin-top:1px}
+.verdict-allow{background:var(--success-dim);color:var(--success)}
+.verdict-deny{background:var(--danger-dim);color:var(--danger)}
+
+/* ── Settings ─── */
+.form-group{margin-bottom:16px}
+.form-label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em}
+.form-input{width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r);padding:9px 12px;font-size:13px;color:var(--text);outline:none;transition:border-color .15s}
+.form-input:focus{border-color:var(--primary)}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+
+/* ── Empty state ─── */
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:48px 24px;color:var(--muted);text-align:center;gap:10px}
+.empty svg{width:40px;height:40px;opacity:.3}
+.empty p{font-size:13px}
+
+/* ── Spinner ─── */
+@keyframes spin{to{transform:rotate(360deg)}}
+.spinner{width:16px;height:16px;border:2px solid var(--border2);border-top-color:var(--primary);border-radius:50%;animation:spin .6s linear infinite;display:inline-block;flex-shrink:0}
+
+/* ── Toast ─── */
+#toast{position:fixed;bottom:24px;right:24px;z-index:999;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.toast-item{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r);padding:12px 16px;font-size:13px;display:flex;align-items:center;gap:10px;box-shadow:var(--shadow);pointer-events:all;animation:slideIn .2s ease}
+.toast-item.success{border-left:3px solid var(--success)}
+.toast-item.error{border-left:3px solid var(--danger)}
+.toast-item.info{border-left:3px solid var(--blue)}
+@keyframes slideIn{from{transform:translateX(24px);opacity:0}to{transform:none;opacity:1}}
+
+/* ── Views ─── */
+.view{display:none}
+.view.active{display:contents}
+
+/* ── Responsive ─── */
+@media(max-width:768px){
+  .sidebar{display:none}
+  .kpi-grid{grid-template-columns:repeat(2,1fr)}
+  .form-row{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- ── SIDEBAR ─────────────────────────────── -->
+<nav class="sidebar">
+  <div class="logo">
+    <svg class="logo-icon" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="8" fill="#00d4aa" fill-opacity=".15"/>
+      <path d="M8 16 L13 10 L19 14 L24 8" stroke="#00d4aa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="16" cy="20" r="4" stroke="#00d4aa" stroke-width="1.5" fill="none"/>
+      <circle cx="16" cy="20" r="1.5" fill="#00d4aa"/>
+      <path d="M16 16 L16 13" stroke="#00d4aa" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+    <div>
+      <div class="logo-text">SRE Agent</div>
+      <div class="logo-sub">Autonomous</div>
+    </div>
+  </div>
+
+  <div class="nav">
+    <div class="nav-section">Monitor</div>
+    <div class="nav-item active" data-view="dashboard" onclick="switchView('dashboard',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+      Dashboard
+    </div>
+    <div class="nav-item" data-view="anomalies" onclick="switchView('anomalies',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      Anomalies
+    </div>
+    <div class="nav-item" data-view="cluster" onclick="switchView('cluster',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+      Cluster
+    </div>
+
+    <div class="nav-section">Operations</div>
+    <div class="nav-item" data-view="pipeline" onclick="switchView('pipeline',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      Pipeline
+    </div>
+    <div class="nav-item" data-view="incidents" onclick="switchView('incidents',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      Incidents
+    </div>
+    <div class="nav-item" data-view="policy" onclick="switchView('policy',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      Policy
+    </div>
+
+    <div class="nav-section">Config</div>
+    <div class="nav-item" data-view="settings" onclick="switchView('settings',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93l-1.41 1.41M4.93 4.93l1.41 1.41M19.07 19.07l-1.41-1.41M4.93 19.07l1.41-1.41M21 12h-2M5 12H3M12 3V1M12 23v-2"/></svg>
+      Settings
+    </div>
+  </div>
+
+  <div class="sidebar-bottom">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <div class="status-dot" id="api-dot"></div>
+      <span style="font-size:12px;color:var(--muted)" id="api-status-text">Connecting...</span>
+    </div>
+    <div style="font-size:11px;color:var(--faint)" id="api-url-display"></div>
+  </div>
+</nav>
+
+<!-- ── MAIN ─────────────────────────────────── -->
+<div class="main">
+  <div class="topbar">
+    <span class="topbar-title" id="page-title">Dashboard</span>
+    <span id="anomaly-badge"></span>
+    <button class="btn btn-ghost" onclick="refreshAll()" id="refresh-btn">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+      Refresh
+    </button>
+    <button class="btn btn-primary" onclick="triggerPipeline(false)" id="run-btn">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      Run Pipeline
+    </button>
+  </div>
+
+  <div class="content">
+
+    <!-- ── DASHBOARD VIEW ─── -->
+    <div class="view active" id="view-dashboard">
+      <div class="kpi-grid" id="kpi-grid">
+        <div class="kpi"><div class="kpi-label">System Status</div><div class="kpi-value success" id="kpi-status">—</div></div>
+        <div class="kpi"><div class="kpi-label">Active Anomalies</div><div class="kpi-value danger" id="kpi-anomalies">—</div></div>
+        <div class="kpi"><div class="kpi-label">Incidents Stored</div><div class="kpi-value info" id="kpi-incidents">—</div></div>
+        <div class="kpi"><div class="kpi-label">Pods Running</div><div class="kpi-value" id="kpi-pods">—</div></div>
+        <div class="kpi"><div class="kpi-label">Pods Unhealthy</div><div class="kpi-value warning" id="kpi-pods-bad">—</div></div>
+        <div class="kpi"><div class="kpi-label">Vector DB</div><div class="kpi-value success" id="kpi-vdb">—</div></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+              Live Anomalies
+            </div>
+            <span class="topbar-badge badge-danger" id="anomaly-count-badge">0</span>
+          </div>
+          <div id="dashboard-anomalies"><div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><p>No anomalies detected</p></div></div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/></svg>
+              Recent Incidents
+            </div>
+          </div>
+          <div id="dashboard-incidents"><div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><p>No incidents yet</p></div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+            Component Health
+          </div>
+          <span style="font-size:11px;color:var(--muted)" id="health-ts"></span>
+        </div>
+        <div id="component-health" style="display:flex;gap:12px;flex-wrap:wrap"></div>
+      </div>
+    </div>
+
+    <!-- ── ANOMALIES VIEW ─── -->
+    <div class="view" id="view-anomalies">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+            Active Anomalies
+          </div>
+          <button class="btn btn-ghost" onclick="loadAnomalies()">
+            <div class="spinner" id="anomaly-spin" style="display:none"></div>
+            Refresh
+          </button>
+        </div>
+        <div id="anomaly-list-full"><div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><p>All clear — no anomalies detected</p></div></div>
+      </div>
+    </div>
+
+    <!-- ── CLUSTER VIEW ─── -->
+    <div class="view" id="view-cluster">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+            Cluster Pods
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input class="form-input" style="width:140px;padding:5px 10px" placeholder="namespace..." id="ns-input" value="default">
+            <button class="btn btn-ghost" onclick="loadCluster()">Query</button>
+          </div>
+        </div>
+        <div id="pod-grid" class="pod-grid"></div>
+      </div>
+    </div>
+
+    <!-- ── PIPELINE VIEW ─── -->
+    <div class="view" id="view-pipeline">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            Pipeline Control
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost" onclick="triggerPipeline(true)">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              Dry Run
+            </button>
+            <button class="btn btn-primary" onclick="triggerPipeline(false)">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              Live Run
+            </button>
+          </div>
+        </div>
+
+        <div style="margin-bottom:20px">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em">Pipeline Stages</div>
+          <div class="pipeline-stages" id="pipeline-stages">
+            <div class="stage"><div class="stage-node" id="stage-monitor">Monitor</div><div class="stage-arrow">→</div></div>
+            <div class="stage"><div class="stage-node" id="stage-diagnose">Diagnose</div><div class="stage-arrow">→</div></div>
+            <div class="stage"><div class="stage-node" id="stage-decide">Decide</div><div class="stage-arrow">→</div></div>
+            <div class="stage"><div class="stage-node" id="stage-policy">Policy</div><div class="stage-arrow">→</div></div>
+            <div class="stage"><div class="stage-node" id="stage-execute">Execute</div><div class="stage-arrow">→</div></div>
+            <div class="stage"><div class="stage-node" id="stage-store">Store</div></div>
+          </div>
+        </div>
+
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">Recent Runs</div>
+        <div id="run-list"><div class="empty"><p>No runs yet — trigger one above</p></div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+            Pipeline Log
+          </div>
+          <button class="btn btn-ghost" style="font-size:11px" onclick="document.getElementById('log-box').innerHTML=''">Clear</button>
+        </div>
+        <div class="log-box" id="log-box">
+          <div class="log-line dim"># Pipeline output will appear here...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── INCIDENTS VIEW ─── -->
+    <div class="view" id="view-incidents">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/></svg>
+            All Incidents
+          </div>
+          <span id="incident-count" class="topbar-badge badge-info">0</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Incident ID</th><th>Issue</th><th>Pod</th>
+              <th>Namespace</th><th>Action</th><th>Outcome</th>
+            </tr></thead>
+            <tbody id="incident-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── POLICY VIEW ─── -->
+    <div class="view" id="view-policy">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              Policy Check
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Action Type</label>
+            <select class="form-input" id="p-action">
+              <option>delete_pod</option><option>restart_deployment</option>
+              <option>scale_deployment</option><option>update_resources</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Risk Level</label>
+              <select class="form-input" id="p-risk">
+                <option>low</option><option>medium</option><option>high</option><option>dangerous</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Environment</label>
+              <select class="form-input" id="p-env">
+                <option>staging</option><option>production</option><option>development</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Confidence (0-1)</label>
+              <input class="form-input" id="p-conf" type="number" min="0" max="1" step="0.1" value="0.9">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Namespace</label>
+              <input class="form-input" id="p-ns" value="default">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Pod Name</label>
+            <input class="form-input" id="p-pod" value="crash-test">
+          </div>
+          <button class="btn btn-primary" style="width:100%" onclick="checkPolicy()">Check Policy</button>
+          <div id="policy-result" style="margin-top:14px"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              OPA Policy Rules
+            </div>
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Active enforcement rules from OPA engine</div>
+          <div id="policy-rules-list">
+            <div class="policy-item">
+              <span class="policy-verdict verdict-deny">DENY</span>
+              <div><div style="font-size:13px;font-weight:500;margin-bottom:3px">Production restart block</div><div style="font-size:12px;color:var(--muted)">restart_pod / restart_deployment blocked in production environment</div></div>
+            </div>
+            <div class="policy-item">
+              <span class="policy-verdict verdict-deny">DENY</span>
+              <div><div style="font-size:13px;font-weight:500;margin-bottom:3px">High risk actions</div><div style="font-size:12px;color:var(--muted)">Actions with risk_level=high or dangerous are always blocked</div></div>
+            </div>
+            <div class="policy-item">
+              <span class="policy-verdict verdict-deny">DENY</span>
+              <div><div style="font-size:13px;font-weight:500;margin-bottom:3px">Low confidence threshold</div><div style="font-size:12px;color:var(--muted)">Actions blocked when LLM confidence &lt; 0.6</div></div>
+            </div>
+            <div class="policy-item">
+              <span class="policy-verdict verdict-allow">ALLOW</span>
+              <div><div style="font-size:13px;font-weight:500;margin-bottom:3px">Staging actions</div><div style="font-size:12px;color:var(--muted)">Low risk actions allowed in staging with confidence ≥ 0.6</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SETTINGS VIEW ─── -->
+    <div class="view" id="view-settings">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93l-1.41 1.41M4.93 4.93l1.41 1.41M19.07 19.07l-1.41-1.41M4.93 19.07l1.41-1.41M21 12h-2M5 12H3M12 3V1M12 23v-2"/></svg>
+            API Configuration
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Backend API URL</label>
+          <div style="display:flex;gap:8px">
+            <input class="form-input" id="api-url-input" placeholder="http://localhost:8000">
+            <button class="btn btn-primary" onclick="saveApiUrl()">Save & Test</button>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-top:6px">
+            Default: http://localhost:8000 — change to your Render URL when deployed
+          </div>
+        </div>
+        <div class="form-group" style="margin-top:20px">
+          <label class="form-label">Connection Status</label>
+          <div id="conn-status" style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)">
+            <div class="spinner"></div> Testing...
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            API Endpoints Reference
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Method</th><th>Endpoint</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td><span class="topbar-badge badge-success">GET</span></td><td class="mono">/health</td><td>Component health check</td></tr>
+              <tr><td><span class="topbar-badge badge-success">GET</span></td><td class="mono">/api/v1/anomalies</td><td>Live anomaly detection</td></tr>
+              <tr><td><span class="topbar-badge badge-info">POST</span></td><td class="mono">/api/v1/pipeline/run</td><td>Trigger pipeline run</td></tr>
+              <tr><td><span class="topbar-badge badge-success">GET</span></td><td class="mono">/api/v1/pipeline/runs</td><td>List pipeline runs</td></tr>
+              <tr><td><span class="topbar-badge badge-success">GET</span></td><td class="mono">/api/v1/incidents</td><td>Stored incidents</td></tr>
+              <tr><td><span class="topbar-badge badge-info">POST</span></td><td class="mono">/api/v1/policy/check</td><td>OPA policy evaluation</td></tr>
+              <tr><td><span class="topbar-badge badge-success">GET</span></td><td class="mono">/api/v1/cluster/pods</td><td>Cluster pod status</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+</div><!-- /app -->
+
+<!-- ── TOAST ─────────────────────────────────── -->
+<div id="toast"></div>
+
+<!-- ── SCRIPTS ────────────────────────────────── -->
+<script>
+// ── Config ──────────────────────────────────────
+let API = localStorage.getItem('sre_api_url') || 'http://localhost:8000';
+const STAGES = ['monitor','diagnose','decide','policy','execute','store'];
+
+// ── Init ─────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('api-url-input').value = API;
+  document.getElementById('api-url-display').textContent = API;
+  refreshAll();
+  setInterval(refreshAll, 30000);
+});
+
+// ── Navigation ───────────────────────────────────
+const viewTitles = {
+  dashboard:'Dashboard', anomalies:'Active Anomalies',
+  cluster:'Cluster View', pipeline:'Pipeline Control',
+  incidents:'Incident Log', policy:'Policy Engine', settings:'Settings'
+};
+
+function switchView(name, el) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('view-' + name).classList.add('active');
+  el.classList.add('active');
+  document.getElementById('page-title').textContent = viewTitles[name];
+  if (name === 'anomalies') loadAnomalies();
+  if (name === 'cluster')   loadCluster();
+  if (name === 'incidents') loadIncidents();
+  if (name === 'pipeline')  loadRuns();
+}
+
+// ── API helper ───────────────────────────────────
+async function api(path, opts={}) {
+  const res = await fetch(API + path, opts);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+// ── Toast ────────────────────────────────────────
+function toast(msg, type='info') {
+  const el = document.createElement('div');
+  el.className = `toast-item ${type}`;
+  el.innerHTML = `<span>${msg}</span>`;
+  document.getElementById('toast').appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+// ── Refresh all ──────────────────────────────────
+async function refreshAll() {
+  await Promise.allSettled([
+    loadHealth(), loadAnomaliesQuick(), loadIncidentsQuick(), loadClusterQuick()
+  ]);
+}
+
+// ── Health ───────────────────────────────────────
+async function loadHealth() {
+  try {
+    const d = await api('/health');
+    const dot = document.getElementById('api-dot');
+    const txt = document.getElementById('api-status-text');
+    const ok = d.status === 'healthy';
+    dot.className = 'status-dot' + (ok ? '' : ' yellow');
+    txt.textContent = ok ? 'Connected' : 'Degraded';
+    document.getElementById('kpi-status').textContent = ok ? 'OK' : 'DEG';
+    document.getElementById('kpi-status').className = 'kpi-value ' + (ok ? 'success' : 'warning');
+    document.getElementById('health-ts').textContent = new Date(d.timestamp).toLocaleTimeString();
+
+    const comp = document.getElementById('component-health');
+    comp.innerHTML = [
+      { label: 'Prometheus', val: d.prometheus },
+      { label: 'Redis',      val: d.redis },
+      { label: 'Vector DB',  val: d.vector_db }
+    ].map(c => {
+      const ok2 = c.val.startsWith('ok');
+      return `<div style="display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--surface2);border-radius:var(--r);border:1px solid var(--border)">
+        <div class="status-dot ${ok2 ? '' : 'red'}"></div>
+        <div><div style="font-size:12px;font-weight:600">${c.label}</div>
+        <div style="font-size:11px;color:var(--muted);font-family:var(--font-mono)">${c.val}</div></div>
+      </div>`;
+    }).join('');
+
+    // VDB count
+    const vdbCount = (d.vector_db.match(/\d+/) || ['0'])[0];
+    document.getElementById('kpi-vdb').textContent = vdbCount;
+
+    // conn status in settings
+    const cs = document.getElementById('conn-status');
+    cs.innerHTML = `<div class="status-dot"></div><span style="color:var(--success)">Connected — ${d.status}</span>`;
+  } catch(e) {
+    document.getElementById('api-dot').className = 'status-dot red';
+    document.getElementById('api-status-text').textContent = 'Offline';
+    document.getElementById('kpi-status').textContent = 'ERR';
+    document.getElementById('kpi-status').className = 'kpi-value danger';
+    document.getElementById('conn-status').innerHTML = `<div class="status-dot red"></div><span style="color:var(--danger)">Cannot reach API at ${API}</span>`;
+  }
+}
+
+// ── Anomalies ─────────────────────────────────────
+async function loadAnomaliesQuick() {
+  try {
+    const d = await api('/api/v1/anomalies');
+    const count = d.count || 0;
+    const badge = document.getElementById('anomaly-badge');
+    const kpi = document.getElementById('kpi-anomalies');
+    const cbadge = document.getElementById('anomaly-count-badge');
+    kpi.textContent = count;
+    cbadge.textContent = count;
+    badge.innerHTML = count > 0 ? `<span class="topbar-badge badge-danger">${count} anomalies</span>` : `<span class="topbar-badge badge-success">All Clear</span>`;
+    document.getElementById('dashboard-anomalies').innerHTML = count === 0
+      ? `<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><p>No anomalies detected</p></div>`
+      : d.anomalies.slice(0,3).map(renderAnomalyCard).join('');
+  } catch(e) {}
+}
+
+async function loadAnomalies() {
+  document.getElementById('anomaly-spin').style.display = 'inline-block';
+  try {
+    const d = await api('/api/v1/anomalies');
+    document.getElementById('anomaly-list-full').innerHTML = d.count === 0
+      ? `<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><p>All clear — no anomalies detected</p></div>`
+      : `<div class="anomaly-list">${d.anomalies.map(renderAnomalyCard).join('')}</div>`;
+  } catch(e) { toast('Failed to load anomalies','error'); }
+  document.getElementById('anomaly-spin').style.display = 'none';
+}
+
+function renderAnomalyCard(a) {
+  const sev = a.severity;
+  const colors = {critical:['danger','🔴'],high:['warning','🟠'],medium:['info','🔵'],low:['success','🟢']};
+  const [col, emoji] = colors[sev] || ['muted','⚪'];
+  return `<div class="anomaly-item ${sev}">
+    <div class="anomaly-body">
+      <div class="anomaly-title">
+        <span>${emoji}</span>
+        <span>${a.pod}</span>
+        <span class="topbar-badge badge-${col}">${sev.toUpperCase()}</span>
+        <span class="topbar-badge badge-muted">${a.anomaly_type}</span>
+      </div>
+      <div class="anomaly-meta">${a.namespace} · value: ${a.metric_value} (threshold: ${a.threshold}) · ${new Date(a.timestamp).toLocaleTimeString()}</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">${a.message}</div>
+    </div>
+  </div>`;
+}
+
+// ── Cluster ───────────────────────────────────────
+async function loadClusterQuick() {
+  const ns = document.getElementById('ns-input').value || 'default';
+  try {
+    const d = await api(`/api/v1/cluster/pods?namespace=${ns}`);
+    document.getElementById('kpi-pods').textContent = d.count;
+    const bad = d.pods.filter(p => !p.ready).length;
+    document.getElementById('kpi-pods-bad').textContent = bad;
+  } catch(e) {
+    document.getElementById('kpi-pods').textContent = 'N/A';
+    document.getElementById('kpi-pods-bad').textContent = 'N/A';
+  }
+}
+
+async function loadCluster() {
+  const ns = document.getElementById('ns-input').value || 'default';
+  try {
+    const d = await api(`/api/v1/cluster/pods?namespace=${ns}`);
+    document.getElementById('kpi-pods').textContent = d.count;
+    const bad = d.pods.filter(p => !p.ready).length;
+    document.getElementById('kpi-pods-bad').textContent = bad;
+    if (d.error) {
+      document.getElementById('pod-grid').innerHTML = `<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg><p>${d.error}</p></div>`;
+      return;
+    }
+    document.getElementById('pod-grid').innerHTML = d.pods.map(p => `
+      <div class="pod-card">
+        <div class="pod-name" title="${p.name}">${p.name}</div>
+        <div class="pod-row"><span>Status</span><span style="color:${p.status==='Running'?'var(--success)':'var(--warning)'}">${p.status}</span></div>
+        <div class="pod-row"><span>Ready</span><span style="color:${p.ready?'var(--success)':'var(--danger)'}">${p.ready?'Yes':'No'}</span></div>
+        <div class="pod-row"><span>Restarts</span><span style="color:${p.restarts>3?'var(--warning)':'inherit'}">${p.restarts}</span></div>
+        <div class="pod-row"><span>Node</span><span>${p.node||'N/A'}</span></div>
+      </div>`).join('');
+  } catch(e) {
+    document.getElementById('kpi-pods').textContent = 'N/A';
+    document.getElementById('kpi-pods-bad').textContent = 'N/A';
+    toast('Failed to load cluster data','error');
+  }
+}
+
+// ── Incidents ─────────────────────────────────────
+async function loadIncidentsQuick() {
+  try {
+    const d = await api('/api/v1/incidents');
+    document.getElementById('kpi-incidents').textContent = d.count;
+    const recent = (d.incidents||[]).slice(-3).reverse();
+    document.getElementById('dashboard-incidents').innerHTML = recent.length === 0
+      ? `<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><p>No incidents yet</p></div>`
+      : recent.map(i => renderIncidentRow(i)).join('');
+  } catch(e) {}
+}
+
+async function loadIncidents() {
+  try {
+    const d = await api('/api/v1/incidents');
+    document.getElementById('incident-count').textContent = d.count;
+    document.getElementById('incident-table').innerHTML = (d.incidents||[]).reverse().map(i => `
+      <tr>
+        <td class="mono" style="color:var(--primary)">${i.incident_id.slice(0,8)}</td>
+        <td>${i.issue}</td>
+        <td class="mono">${i.pod}</td>
+        <td class="mono">${i.namespace}</td>
+        <td><span class="topbar-badge badge-info">${i.action_taken}</span></td>
+        <td><span class="topbar-badge ${i.outcome==='success'?'badge-success':i.outcome==='dry_run'?'badge-info':'badge-warning'}">${i.outcome}</span></td>
+      </tr>`).join('');
+  } catch(e) { toast('Failed to load incidents','error'); }
+}
+
+function renderIncidentRow(i) {
+  const icon = i.outcome === 'success' ? 'resolved' : i.outcome === 'dry_run' ? 'dry_run' : 'escalated';
+  const emoji = i.outcome === 'success' ? '✅' : i.outcome === 'dry_run' ? '🔵' : '⚠️';
+  return `<div class="incident-row">
+    <div class="incident-icon ${icon}" style="font-size:16px">${emoji}</div>
+    <div class="incident-body">
+      <div class="incident-title">${i.issue} — <span style="font-family:var(--font-mono);font-size:12px">${i.pod}</span></div>
+      <div class="incident-meta">${i.action_taken} · ${i.outcome} · ${i.incident_id.slice(0,8)}</div>
+    </div>
+  </div>`;
+}
+
+// ── Pipeline ─────────────────────────────────────
+async function triggerPipeline(dry) {
+  const btn = document.getElementById('run-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spinner"></div> Running...';
+  resetStages();
+  log(`🚀 Triggering ${dry?'dry-run':'live'} pipeline...`, 'info');
+  animateStages();
+
+  try {
+    const run = await api('/api/v1/pipeline/run', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({dry_run: dry})
+    });
+    log(`📋 Run ID: ${run.run_id} — ${run.status}`, 'ok');
+    toast(`Pipeline queued: ${run.run_id}`, 'info');
+
+    // Poll for result
+    let attempts = 0;
+    const poll = setInterval(async () => {
+      attempts++;
+      try {
+        const status = await api(`/api/v1/pipeline/runs/${run.run_id}`);
+        if (status.status === 'completed') {
+          clearInterval(poll);
+          clearStageAnimation();
+          STAGES.forEach(s => document.getElementById('stage-'+s).className = 'stage-node done');
+          log(`✅ Completed — incident: ${(status.incident_id||'').slice(0,8)||'escalated'}`, 'ok');
+          if (status.escalated) { log('🚨 Escalated to human review', 'warn'); }
+          toast('Pipeline completed', 'success');
+          loadRuns();
+          loadIncidentsQuick();
+          loadAnomaliesQuick();
+        } else if (status.status === 'failed') {
+          clearInterval(poll); clearStageAnimation();
+          log(`❌ Failed: ${status.message}`, 'err');
+          toast('Pipeline failed', 'error');
+        } else if (attempts > 60) { clearInterval(poll); clearStageAnimation(); }
+      } catch(e) {}
+    }, 2000);
+  } catch(e) { log(`❌ Error: ${e.message}`, 'err'); toast('Failed to trigger pipeline','error'); }
+  btn.disabled = false;
+  btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Run Pipeline`;
+}
+
+function resetStages() { STAGES.forEach(s => { const el = document.getElementById('stage-'+s); if(el) el.className = 'stage-node'; }); }
+let _stageAnim = null;
+function animateStages() {
+  let i = 0;
+  _stageAnim = setInterval(() => {
+    STAGES.forEach((s,j) => {
+      const el = document.getElementById('stage-'+s);
+      if (!el) return;
+      el.className = j < i ? 'stage-node done' : j === i ? 'stage-node active' : 'stage-node';
+    });
+    i = (i+1) % STAGES.length;
+  }, 600);
+}
+function clearStageAnimation() { if(_stageAnim) { clearInterval(_stageAnim); _stageAnim = null; } }
+
+async function loadRuns() {
+  try {
+    const d = await api('/api/v1/pipeline/runs');
+    document.getElementById('run-list').innerHTML = (d.runs||[]).reverse().slice(0,8).map(r => `
+      <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+        <span class="topbar-badge ${r.status==='completed'?'badge-success':r.status==='failed'?'badge-danger':'badge-warning'}">${r.status}</span>
+        <span class="mono" style="color:var(--primary)">${r.run_id}</span>
+        <span style="color:var(--muted);font-size:12px">${r.dry_run?'dry-run':'live'}</span>
+        <span style="color:var(--muted);font-size:12px;margin-left:auto">${r.events_found||0} events</span>
+        ${r.incident_id?`<span class="mono" style="color:var(--success);font-size:11px">${r.incident_id.slice(0,8)}</span>`:''}
+      </div>`).join('') || '<div class="empty"><p>No runs yet</p></div>';
+  } catch(e) {}
+}
+
+function log(msg, type='dim') {
+  const box = document.getElementById('log-box');
+  const line = document.createElement('div');
+  line.className = 'log-line ' + type;
+  line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
+}
+
+// ── Policy ────────────────────────────────────────
+async function checkPolicy() {
+  try {
+    const body = {
+      action_type: document.getElementById('p-action').value,
+      risk_level:  document.getElementById('p-risk').value,
+      environment: document.getElementById('p-env').value,
+      confidence:  parseFloat(document.getElementById('p-conf').value),
+      namespace:   document.getElementById('p-ns').value,
+      pod:         document.getElementById('p-pod').value
+    };
+    const d = await api('/api/v1/policy/check', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
+    });
+    const allowed = d.allowed;
+    document.getElementById('policy-result').innerHTML = `
+      <div style="padding:14px;border-radius:var(--r);background:${allowed?'var(--success-dim)':'var(--danger-dim)'};border:1px solid ${allowed?'var(--success)':'var(--danger)'}">
+        <div style="font-size:16px;font-weight:700;color:${allowed?'var(--success)':'var(--danger)'};margin-bottom:6px">
+          ${allowed?'✅ ALLOW':'❌ DENY'}
+        </div>
+        ${d.violations.length>0?`<div style="font-size:12px;color:var(--muted)">${d.violations.map(v=>`• ${v}`).join('<br>')}</div>`:'<div style="font-size:12px;color:var(--muted)">No policy violations</div>'}
+      </div>`;
+    toast(allowed ? 'Policy: ALLOW' : 'Policy: DENY', allowed ? 'success' : 'error');
+  } catch(e) { toast('Policy check failed','error'); }
+}
+
+// ── Settings ──────────────────────────────────────
+function saveApiUrl() {
+  const val = document.getElementById('api-url-input').value.trim().replace(/\/$/, '');
+  API = val;
+  localStorage.setItem('sre_api_url', val);
+  document.getElementById('api-url-display').textContent = val;
+  toast('API URL saved — testing connection...', 'info');
+  loadHealth();
+}
+</script>
+</body>
+</html>

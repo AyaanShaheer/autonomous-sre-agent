@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+
+# ChromaDB data (too large for git)
+chroma_data/
+chroma/
+*.chroma
+
+# Kubernetes configs with credentials
+kubeconfig
+*.kubeconfig
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Node (dashboard deps if any)
+node_modules/
+
+# Temp
+tmp/
+temp/

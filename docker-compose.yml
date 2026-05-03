@@ -1,0 +1,82 @@
+version: "3.9"
+
+services:
+  # ── Redis ────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: sre-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── SRE API ──────────────────────────────────────────────
+  sre-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sre-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - CHROMA_PERSIST_DIR=/app/memory/chroma_store
+      - PROMETHEUS_URL=${PROMETHEUS_URL:-http://host.docker.internal:9090}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_MODEL=${GROQ_MODEL:-llama-3.1-70b-versatile}
+      - SRE_ENVIRONMENT=${SRE_ENVIRONMENT:-staging}
+      - TOKENIZERS_PARALLELISM=false
+      - TRANSFORMERS_OFFLINE=1
+    volumes:
+      - chroma_data:/app/memory/chroma_store
+      - ${KUBECONFIG:-~/.kube/config}:/root/.kube/config:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ── Orchestrator Loop (background continuous runner) ─────
+  sre-orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sre-orchestrator
+    restart: unless-stopped
+    command: ["python", "-m", "orchestrator.runner", "--loop", "--dry-run"]
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - CHROMA_PERSIST_DIR=/app/memory/chroma_store
+      - PROMETHEUS_URL=${PROMETHEUS_URL:-http://host.docker.internal:9090}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_MODEL=${GROQ_MODEL:-llama-3.1-70b-versatile}
+      - SRE_ENVIRONMENT=${SRE_ENVIRONMENT:-staging}
+      - TOKENIZERS_PARALLELISM=false
+      - TRANSFORMERS_OFFLINE=1
+    volumes:
+      - chroma_data:/app/memory/chroma_store
+      - ${KUBECONFIG:-~/.kube/config}:/root/.kube/config:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      sre-api:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  redis_data:
+  chroma_data:
