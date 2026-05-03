@@ -149,7 +149,7 @@ Memory (ChromaDB + Redis) ← Execute ← Policy (OPA)
 ## 🚀 Quick Start
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/autonomous-sre-agent.git
+git clone https://github.com/AyaanShaheer/autonomous-sre-agent.git
 cd autonomous-sre-agent
 
 cp .env.example .env
